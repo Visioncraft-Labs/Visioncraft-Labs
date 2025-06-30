@@ -11,12 +11,12 @@ const Services = () => {
       price: "PKR 55,000",
       description: "Perfect for startups",
       features: [
-        "Up to 15 product images",
+        "Up to 7 product images",
         "Basic background removal",
         "Color correction",
         "Standard lighting enhancement",
         "7-day delivery",
-        "2 revision rounds"
+        "1 revision rounds"
       ],
       buttonClass: "btn-luxury",
       cardClass: "card-luxury hover:scale-105"
@@ -26,13 +26,13 @@ const Services = () => {
       price: "PKR 85,000",
       description: "Ideal for growing businesses",
       features: [
-        "Up to 30 product images",
+        "Up to 15 product images",
         "Advanced background replacement",
         "Professional color grading",
         "Premium lighting & shadows",
         "Lifestyle scene creation",
         "5-day delivery",
-        "3 revision rounds"
+        "2 revision rounds"
       ],
       buttonClass: "btn-secondary",
       cardClass: "card-luxury bg-gradient-to-br from-orange-500/10 to-pink-500/10 border-2 border-accent-orange/30 transform scale-105 shadow-2xl",
@@ -43,13 +43,13 @@ const Services = () => {
       price: "PKR 125,000",
       description: "Enterprise solution",
       features: [
-        "Up to 50 product images",
+        "Up to 30 product images",
         "Custom scene creation",
         "Advanced compositing",
         "Cinema-grade lighting",
         "Brand-specific styling",
         "3-day delivery",
-        "Unlimited revisions",
+        "5 revisions",
         "Dedicated account manager"
       ],
       buttonClass: "gradient-bg-primary text-white font-semibold",
