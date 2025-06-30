@@ -68,14 +68,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "Invalid form data", 
           errors: error.errors 
         });
-           } else {
+      } else {
         console.error("Contact form error:", error);
         console.error("Email sending failed, but form was saved");
         res.status(500).json({ 
           success: false, 
           message: "Failed to submit contact form",
-          error: error.message
+          error: (error as any).message
         });
+      }
     }
   });
 
@@ -136,12 +137,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           uploadedAt: imageUpload.createdAt
         },
         emailSent
-        } catch (error) {
+      });
+    } catch (error) {
       console.error("Image upload error:", error);
       res.status(500).json({
         success: false,
         message: "Failed to upload image",
-        error: error.message
+        error: (error as any).message
       });
     }
   });
