@@ -1,10 +1,10 @@
 import sgMail from '@sendgrid/mail';
 
 if (!process.env.SENDGRID_API_KEY) {
-  throw new Error("SENDGRID_API_KEY environment variable must be set");
+  console.error("SENDGRID_API_KEY environment variable not set");
 }
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
 
 interface ContactEmailParams {
   name: string;
@@ -52,13 +52,15 @@ export async function sendContactEmail(params: ContactEmailParams): Promise<bool
         </div>
       `,
     };
-
     await sgMail.send(msg);
+    console.log('Contact email sent successfully');
     return true;
   } catch (error) {
     console.error('SendGrid contact email error:', error);
+    if (error.response) {
+      console.error('SendGrid response body:', error.response.body);
+    }
     return false;
-  }
 }
 
 export async function sendImageUploadNotification(params: ImageUploadEmailParams): Promise<boolean> {
@@ -102,12 +104,14 @@ export async function sendImageUploadNotification(params: ImageUploadEmailParams
           </div>
         </div>
       `,
-    };
-
-    await sgMail.send(msg);
+       await sgMail.send(msg);
+    console.log('Image upload email sent successfully');
     return true;
   } catch (error) {
     console.error('SendGrid image upload email error:', error);
+    if (error.response) {
+      console.error('SendGrid response body:', error.response.body);
+    }
     return false;
   }
 }
