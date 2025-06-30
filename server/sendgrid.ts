@@ -52,15 +52,17 @@ export async function sendContactEmail(params: ContactEmailParams): Promise<bool
         </div>
       `,
     };
+
     await sgMail.send(msg);
     console.log('Contact email sent successfully');
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('SendGrid contact email error:', error);
-    if (error.response) {
+    if (error?.response) {
       console.error('SendGrid response body:', error.response.body);
     }
     return false;
+  }
 }
 
 export async function sendImageUploadNotification(params: ImageUploadEmailParams): Promise<boolean> {
@@ -104,12 +106,14 @@ export async function sendImageUploadNotification(params: ImageUploadEmailParams
           </div>
         </div>
       `,
-       await sgMail.send(msg);
+    };
+
+    await sgMail.send(msg);
     console.log('Image upload email sent successfully');
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('SendGrid image upload email error:', error);
-    if (error.response) {
+    if (error?.response) {
       console.error('SendGrid response body:', error.response.body);
     }
     return false;
