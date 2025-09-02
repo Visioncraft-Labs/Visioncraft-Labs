@@ -8,7 +8,7 @@ const Services = () => {
   const packages = [
     {
       name: "Silver",
-      price: "PKR 55,000",
+      price: "$ 300",
       description: "Perfect for startups",
       features: [
         "Up to 7 product images",
@@ -23,7 +23,7 @@ const Services = () => {
     },
     {
       name: "Gold",
-      price: "PKR 85,000",
+      price: "$ 500",
       description: "Ideal for growing businesses",
       features: [
         "Up to 15 product images",
@@ -40,7 +40,7 @@ const Services = () => {
     },
     {
       name: "Platinum",
-      price: "PKR 125,000",
+      price: "$ 1,000",
       description: "Enterprise solution",
       features: [
         "Up to 30 product images",
