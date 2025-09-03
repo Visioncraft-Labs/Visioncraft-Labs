@@ -189,7 +189,7 @@ const Contact = () => {
                       <Instagram className="h-6 w-6 text-accent-cyan group-hover:text-accent-pink transition-colors" />
                     </a>
                     <a 
-                      href="https://www.facebook.com/profile.php?viewas=100000686899395&id=61577453503470" 
+                      href="https://www.facebook.com/profile.php?id=61577453503470" 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="card-luxury p-3 rounded-lg hover:scale-105 transition-all duration-300 group"
