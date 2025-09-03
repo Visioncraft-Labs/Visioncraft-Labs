@@ -167,11 +167,11 @@ const Contact = () => {
                     </div>
                     <div className="flex items-center">
                       <Phone className="h-5 w-5 text-accent-cyan mr-4" />
-                      <span className="text-muted">+92-300-8443779</span>
+                      <span className="text-muted">+1-647-8324443</span>
                     </div>
                     <div className="flex items-center">
                       <MapPin className="h-5 w-5 text-accent-cyan mr-4" />
-                      <span className="text-muted">Lahore, Pakistan</span>
+                      <span className="text-muted">Toronto, Canada</span>
                     </div>
                   </div>
                 </div>
