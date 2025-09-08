@@ -46,13 +46,14 @@ const Contact = () => {
       form.reset();
       queryClient.invalidateQueries({ queryKey: ["/api/contact-submissions"] });
     },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Failed to send message",
-        description: "Please try again later.",
-      });
-    },
+    onError: (error: any) => {
+  toast({
+    variant: "destructive",
+    title: "Failed to send message",
+    description: String(error?.message || error || "Unknown error"),
+  });
+},
+
   });
 
   const onSubmit = (data: ContactFormData) => {
