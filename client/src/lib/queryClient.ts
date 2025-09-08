@@ -1,17 +1,39 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+/** Safely read a response body as JSON or text (handles empty bodies too) */
+async function readBody(res: Response): Promise<any | string | null> {
+  const ct = res.headers.get("content-type") || "";
+  const isJson = ct.includes("application/json");
+  const text = await res.text(); // can be empty
+  if (!text) return null;
+  try {
+    return isJson ? JSON.parse(text) : text;
+  } catch {
+    return text;
   }
 }
 
-export async function apiRequest(
+/** Throw with a useful message when the response is not ok */
+async function throwIfResNotOk(res: Response) {
+  if (!res.ok) {
+    const body = await readBody(res);
+    // Prefer server-provided error details
+    const msg =
+      (body && typeof body === "object" && ("message" in body || "error" in body)
+        ? (body.message as string) || (body.error as string)
+        : typeof body === "string"
+        ? body
+        : res.statusText) || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+}
+
+/** Use this everywhere you do fetches from the UI */
+export async function apiRequest<T = any>(
   method: string,
   url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
+  data?: unknown,
+): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
@@ -20,25 +42,27 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
-  return res;
+  const body = await readBody(res);
+  // If server returned empty body, just return an empty object
+  return (body as T) ?? ({} as T);
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
+
+/** Default query fetcher that also surfaces server error messages */
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
-      credentials: "include",
-    });
+    const res = await fetch(queryKey[0] as string, { credentials: "include" });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+      return null as T;
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    return (await readBody(res)) as T;
   };
 
 export const queryClient = new QueryClient({
