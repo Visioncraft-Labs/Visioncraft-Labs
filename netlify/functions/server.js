@@ -1,10 +1,11 @@
 // netlify/functions/server.js
 // ESM + serverless-http for Netlify Functions
-// Works at: /.netlify/functions/server/*  and /api/*  (via your redirect) and bare paths (dev)
+// Works at /.netlify/functions/server/* and /api/* (via redirect) and bare /* (dev)
 
 import express from "express";
 import serverless from "serverless-http";
 import multer from "multer";
+import sgMail from "@sendgrid/mail"; // <-- SendGrid
 
 const app = express();
 
@@ -12,7 +13,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); // tighten for prod if needed
+  res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -43,6 +44,7 @@ function escapeHtml(str = "") {
 const ok = (res, data, code = 200) => res.status(code).json(data);
 const bad = (res, msg, code = 400) => res.status(code).json({ success: false, message: msg });
 
+// ---- Resend ----
 async function sendViaResend({ from, to, subject, html, replyTo }) {
   const { RESEND_API_KEY } = process.env;
   if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY not set");
@@ -56,8 +58,35 @@ async function sendViaResend({ from, to, subject, html, replyTo }) {
   return text;
 }
 
+// ---- SendGrid ----
+async function sendViaSendgrid({ from, to, subject, html, replyTo }) {
+  const { SENDGRID_API_KEY } = process.env;
+  if (!SENDGRID_API_KEY) throw new Error("SENDGRID_API_KEY not set");
+  sgMail.setApiKey(SENDGRID_API_KEY);
+
+  // NOTE: "from" must be a verified sender or from a verified domain in SendGrid.
+  const msg = { to, from, subject, html, replyTo };
+  try {
+    const [resp] = await sgMail.send(msg);
+    if (resp?.statusCode && resp.statusCode >= 400) {
+      throw new Error(`SendGrid (${resp.statusCode})`);
+    }
+  } catch (e) {
+    // SDK throws with a detailed response body on 4xx/5xx
+    const detail = e?.response?.body ? JSON.stringify(e.response.body) : String(e);
+    throw new Error(`SendGrid error: ${detail}`);
+  }
+}
+
+// Unified email function: prefers Resend, else SendGrid
 async function sendEmail({ name, email, phone, message }) {
-  const { RESEND_API_KEY, FROM_EMAIL, TO_EMAIL } = process.env;
+  const {
+    RESEND_API_KEY,
+    SENDGRID_API_KEY,
+    FROM_EMAIL, // optional; see notes below
+    TO_EMAIL,
+  } = process.env;
+
   if (!TO_EMAIL) throw new Error("TO_EMAIL not set");
 
   const subject = `New contact form message from ${name}`;
@@ -70,12 +99,19 @@ async function sendEmail({ name, email, phone, message }) {
     <p>${escapeHtml(message).replace(/\n/g, "<br/>")}</p>
   `;
 
-  // Resend-only (no SMTP fallback)
-  if (!RESEND_API_KEY) {
-    throw new Error("Email not configured: set RESEND_API_KEY and TO_EMAIL (optional FROM_EMAIL).");
+  if (RESEND_API_KEY) {
+    // Works for testing without domain verification using onboarding@resend.dev
+    const from = FROM_EMAIL || "onboarding@resend.dev";
+    return await sendViaResend({ from, to: TO_EMAIL, subject, html, replyTo: email });
   }
-  const from = FROM_EMAIL || "onboarding@resend.dev"; // safe sender for testing
-  return await sendViaResend({ from, to: TO_EMAIL, subject, html, replyTo: email });
+
+  if (SENDGRID_API_KEY) {
+    // Must be a verified sender (Single Sender) OR from a verified domain in SendGrid
+    const from = FROM_EMAIL || "visioncraftlabs@gmail.com"; // only valid if verified in SendGrid
+    return await sendViaSendgrid({ from, to: TO_EMAIL, subject, html, replyTo: email });
+  }
+
+  throw new Error("Email not configured: set RESEND_API_KEY or SENDGRID_API_KEY, plus TO_EMAIL (optional FROM_EMAIL).");
 }
 
 // ---------- Bind same handlers to 3 prefixes ----------
@@ -89,6 +125,7 @@ bind("get", "/contact/debug", (req, res) => {
   return ok(res, {
     env_present: {
       RESEND_API_KEY: present(process.env.RESEND_API_KEY),
+      SENDGRID_API_KEY: present(process.env.SENDGRID_API_KEY),
       TO_EMAIL: present(process.env.TO_EMAIL),
       FROM_EMAIL: present(process.env.FROM_EMAIL),
     },
@@ -200,5 +237,4 @@ bind("get", "/", (req, res) => ok(res, { ok: true, message: "Server function is 
 // Fallback
 app.all("*", (req, res) => bad(res, `No route matched. originalUrl=${req.originalUrl} path=${req.path}`, 404));
 
-// Netlify handler (ESM)
 export const handler = serverless(app);
