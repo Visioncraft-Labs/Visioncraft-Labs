@@ -1,7 +1,6 @@
 // netlify/functions/server.js
 // Express + serverless-http for Netlify Functions
-// Your netlify.toml redirects /api/* -> /.netlify/functions/server/:splat
-// So we mount routes under "/.netlify/functions/server" and keep app paths like "/contact".
+// Works with: /api/*  and /.netlify/functions/server/*  and bare paths in dev
 
 const express = require('express');
 const serverless = require('serverless-http');
@@ -9,7 +8,6 @@ const multer = require('multer');
 const nodemailer = require('nodemailer'); // only used if SMTP env vars are present
 
 const app = express();
-const router = express.Router();
 
 // ---------- Middleware ----------
 app.use(express.json());
@@ -121,10 +119,20 @@ async function sendEmail({ name, email, phone, message }) {
   throw new Error('Email not configured: set RESEND_API_KEY (+ optional FROM_EMAIL) OR full SMTP_* variables.');
 }
 
-// ---------- Routes (mounted under "/.netlify/functions/server") ----------
+// ---------- Route registration helper ----------
+// Register the same handler under 3 prefixes: '', '/api', and '/.netlify/functions/server'
+const FUNCTION_PREFIX = '/.netlify/functions/server';
+const PREFIXES = ['', '/api', FUNCTION_PREFIX];
+function addRoute(method, path, ...handlers) {
+  for (const prefix of PREFIXES) {
+    app[method](`${prefix}${path}`, ...handlers);
+  }
+}
+
+// ---------- Routes ----------
 
 // Debug which env vars are present (no secret values shown)
-router.get('/contact/debug', (req, res) => {
+addRoute('get', '/contact/debug', (req, res) => {
   const present = (v) => (typeof v === 'string' && v.length > 0);
   const env = process.env;
   return ok(res, {
@@ -137,11 +145,16 @@ router.get('/contact/debug', (req, res) => {
       SMTP_USER: present(env.SMTP_USER),
       SMTP_PASS: present(env.SMTP_PASS),
     },
+    // Extra visibility to confirm what Express thinks the URL is
+    debug: {
+      originalUrl: req.originalUrl,
+      path: req.path,
+    },
   });
 });
 
 // Fire a test email without the form
-router.get('/contact/test', async (req, res) => {
+addRoute('get', '/contact/test', async (req, res) => {
   try {
     await sendEmail({
       name: 'Visioncraft Tester',
@@ -156,8 +169,8 @@ router.get('/contact/test', async (req, res) => {
   }
 });
 
-// POST /.netlify/functions/server/contact
-router.post('/contact', async (req, res) => {
+// Create contact (form submission)
+addRoute('post', '/contact', async (req, res) => {
   try {
     const { name, email, phone, message } = req.body || {};
     if (!name || !email || !message) {
@@ -178,13 +191,12 @@ router.post('/contact', async (req, res) => {
     return ok(res, { success: true, message: 'Contact form submitted successfully' }, 201);
   } catch (error) {
     console.error('Contact error:', error);
-    // Surface exact reason so your UI can show it
     return bad(res, error.message || 'Failed to submit contact form', 500);
   }
 });
 
-// GET /.netlify/functions/server/contact-submissions
-router.get('/contact-submissions', async (req, res) => {
+// List submissions
+addRoute('get', '/contact-submissions', async (req, res) => {
   try {
     const list = [...contactSubmissions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return ok(res, list);
@@ -194,8 +206,8 @@ router.get('/contact-submissions', async (req, res) => {
   }
 });
 
-// POST /.netlify/functions/server/upload-image
-router.post('/upload-image', upload.single('image'), async (req, res) => {
+// Upload image
+addRoute('post', '/upload-image', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return bad(res, 'No image file provided', 422);
 
@@ -231,8 +243,8 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
   }
 });
 
-// GET /.netlify/functions/server/uploads
-router.get('/uploads', async (req, res) => {
+// List uploads
+addRoute('get', '/uploads', async (req, res) => {
   try {
     const uploads = [...imageUploads]
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
@@ -256,15 +268,11 @@ router.get('/uploads', async (req, res) => {
 });
 
 // Health check
-router.get('/', (req, res) => ok(res, { ok: true, message: 'Server function is up' }));
+addRoute('get', '/', (req, res) => ok(res, { ok: true, message: 'Server function is up' }));
 
-// Mount router at the Netlify function path prefix
-app.use('/.netlify/functions/server', router);
-
-// Error handler (last)
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err && err.stack ? err.stack : err);
-  return bad(res, 'Something went wrong!', 500);
+// Fallback: show what URL Express saw (helps diagnose path mismatches)
+app.all('*', (req, res) => {
+  return bad(res, `No route matched. originalUrl=${req.originalUrl} path=${req.path}`, 404);
 });
 
 // Export the Netlify handler
