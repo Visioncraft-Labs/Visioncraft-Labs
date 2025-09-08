@@ -1,38 +1,39 @@
 // netlify/functions/server.js
 // Express + serverless-http for Netlify Functions
-// Works with: /api/*  and /.netlify/functions/server/*  and bare paths in dev
+// Binds routes to ALL three shapes:
+//   1) /.netlify/functions/server/...   (direct function URL)
+//   2) /api/...                          (your redirect)
+//   3) /...                              (local dev convenience)
 
 const express = require('express');
 const serverless = require('serverless-http');
 const multer = require('multer');
-const nodemailer = require('nodemailer'); // only used if SMTP env vars are present
+const nodemailer = require('nodemailer'); // only used if SMTP_* present
 
 const app = express();
 
-// ---------- Middleware ----------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS (safe for same-origin too)
+// CORS
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*'); // tighten if needed
+  res.header('Access-Control-Allow-Origin', '*'); // tighten for prod if needed
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
-// ---------- In-memory stores (ephemeral on Netlify) ----------
+// ---------- In-memory (ephemeral on Netlify) ----------
 let contactSubmissions = [];
 let imageUploads = [];
 let currentContactId = 1;
 let currentImageUploadId = 1;
 
 // ---------- Multer (memory) ----------
-const storage = multer.memoryStorage();
 const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const ok = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'].includes(file.mimetype);
     if (ok) return cb(null, true);
@@ -46,19 +47,15 @@ function escapeHtml(str = '') {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[m]));
 }
-
-function ok(res, data, code = 200) { return res.status(code).json(data); }
-function bad(res, msg, code = 400) { return res.status(code).json({ success: false, message: msg }); }
+const ok  = (res, data, code = 200) => res.status(code).json(data);
+const bad = (res, msg, code = 400) => res.status(code).json({ success: false, message: msg });
 
 async function sendViaResend({ from, to, subject, html, replyTo }) {
   const { RESEND_API_KEY } = process.env;
   if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY missing');
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from, to, subject, html, reply_to: replyTo }),
   });
   const text = await resp.text().catch(() => '');
@@ -69,7 +66,7 @@ async function sendViaResend({ from, to, subject, html, replyTo }) {
 async function sendEmail({ name, email, phone, message }) {
   const {
     RESEND_API_KEY,
-    FROM_EMAIL, // optional; fall back to onboarding sender for testing
+    FROM_EMAIL, // optional; fallback below
     TO_EMAIL,
     SMTP_HOST,
     SMTP_PORT,
@@ -89,14 +86,12 @@ async function sendEmail({ name, email, phone, message }) {
     <p>${escapeHtml(message).replace(/\n/g, '<br/>')}</p>
   `;
 
-  // Prefer Resend if API key present
   if (RESEND_API_KEY) {
-    // Works without domain verification when using onboarding@resend.dev
+    // Works even without domain verification using onboarding sender
     const from = FROM_EMAIL || 'onboarding@resend.dev';
     return await sendViaResend({ from, to: TO_EMAIL, subject, html, replyTo: email });
   }
 
-  // Fallback: SMTP if fully configured
   if (SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS) {
     const from = FROM_EMAIL || 'no-reply@visioncraftlabs.com';
     const transporter = nodemailer.createTransport({
@@ -116,45 +111,32 @@ async function sendEmail({ name, email, phone, message }) {
     return;
   }
 
-  throw new Error('Email not configured: set RESEND_API_KEY (+ optional FROM_EMAIL) OR full SMTP_* variables.');
+  throw new Error('Email not configured: set RESEND_API_KEY (optional FROM_EMAIL) OR full SMTP_* variables.');
 }
 
-// ---------- Route registration helper ----------
-// Register the same handler under 3 prefixes: '', '/api', and '/.netlify/functions/server'
-const FUNCTION_PREFIX = '/.netlify/functions/server';
-const PREFIXES = ['', '/api', FUNCTION_PREFIX];
-function addRoute(method, path, ...handlers) {
-  for (const prefix of PREFIXES) {
-    app[method](`${prefix}${path}`, ...handlers);
-  }
-}
+// ---------- Route binder (bind same handler to 3 prefixes) ----------
+const FN = '/.netlify/functions/server';
+const PREFIXES = ['', '/api', FN];
+const bind = (method, path, ...handlers) => PREFIXES.forEach(p => app[method](`${p}${path}`, ...handlers));
 
-// ---------- Routes ----------
-
-// Debug which env vars are present (no secret values shown)
-addRoute('get', '/contact/debug', (req, res) => {
-  const present = (v) => (typeof v === 'string' && v.length > 0);
-  const env = process.env;
+// ---------- DEBUG ROUTES ----------
+bind('get', '/contact/debug', (req, res) => {
+  const present = (v) => typeof v === 'string' && v.length > 0;
   return ok(res, {
     env_present: {
-      RESEND_API_KEY: present(env.RESEND_API_KEY),
-      TO_EMAIL: present(env.TO_EMAIL),
-      FROM_EMAIL: present(env.FROM_EMAIL),
-      SMTP_HOST: present(env.SMTP_HOST),
-      SMTP_PORT: present(env.SMTP_PORT),
-      SMTP_USER: present(env.SMTP_USER),
-      SMTP_PASS: present(env.SMTP_PASS),
+      RESEND_API_KEY: present(process.env.RESEND_API_KEY),
+      TO_EMAIL: present(process.env.TO_EMAIL),
+      FROM_EMAIL: present(process.env.FROM_EMAIL),
+      SMTP_HOST: present(process.env.SMTP_HOST),
+      SMTP_PORT: present(process.env.SMTP_PORT),
+      SMTP_USER: present(process.env.SMTP_USER),
+      SMTP_PASS: present(process.env.SMTP_PASS),
     },
-    // Extra visibility to confirm what Express thinks the URL is
-    debug: {
-      originalUrl: req.originalUrl,
-      path: req.path,
-    },
+    debug: { originalUrl: req.originalUrl, path: req.path },
   });
 });
 
-// Fire a test email without the form
-addRoute('get', '/contact/test', async (req, res) => {
+bind('get', '/contact/test', async (req, res) => {
   try {
     await sendEmail({
       name: 'Visioncraft Tester',
@@ -169,13 +151,11 @@ addRoute('get', '/contact/test', async (req, res) => {
   }
 });
 
-// Create contact (form submission)
-addRoute('post', '/contact', async (req, res) => {
+// ---------- API ROUTES ----------
+bind('post', '/contact', async (req, res) => {
   try {
     const { name, email, phone, message } = req.body || {};
-    if (!name || !email || !message) {
-      return bad(res, 'All fields are required (name, email, message).', 422);
-    }
+    if (!name || !email || !message) return bad(res, 'All fields are required (name, email, message).', 422);
 
     const submission = {
       id: currentContactId++,
@@ -195,22 +175,18 @@ addRoute('post', '/contact', async (req, res) => {
   }
 });
 
-// List submissions
-addRoute('get', '/contact-submissions', async (req, res) => {
+bind('get', '/contact-submissions', (req, res) => {
   try {
     const list = [...contactSubmissions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return ok(res, list);
-  } catch (error) {
-    console.error(error);
+  } catch {
     return bad(res, 'Failed to fetch contact submissions', 500);
   }
 });
 
-// Upload image
-addRoute('post', '/upload-image', upload.single('image'), async (req, res) => {
+bind('post', '/upload-image', upload.single('image'), (req, res) => {
   try {
     if (!req.file) return bad(res, 'No image file provided', 422);
-
     const { clientName, clientEmail, clientPhone } = req.body || {};
     const record = {
       id: currentImageUploadId++,
@@ -218,24 +194,17 @@ addRoute('post', '/upload-image', upload.single('image'), async (req, res) => {
       originalName: req.file.originalname,
       fileSize: String(req.file.size),
       mimeType: req.file.mimetype,
-      uploadPath: `/tmp/${Date.now()}_${req.file.originalname}`, // placeholder only
+      uploadPath: `/tmp/${Date.now()}_${req.file.originalname}`, // placeholder
       clientName: clientName || null,
       clientEmail: clientEmail || null,
       clientPhone: clientPhone || null,
       status: 'uploaded',
       createdAt: new Date().toISOString(),
     };
-
     imageUploads.push(record);
-
     return ok(res, {
       success: true,
-      upload: {
-        id: record.id,
-        originalName: record.originalName,
-        status: record.status,
-        uploadedAt: record.createdAt,
-      },
+      upload: { id: record.id, originalName: record.originalName, status: record.status, uploadedAt: record.createdAt },
     });
   } catch (error) {
     console.error(error);
@@ -243,37 +212,24 @@ addRoute('post', '/upload-image', upload.single('image'), async (req, res) => {
   }
 });
 
-// List uploads
-addRoute('get', '/uploads', async (req, res) => {
+bind('get', '/uploads', (req, res) => {
   try {
     const uploads = [...imageUploads]
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .map((u) => ({
-        id: u.id,
-        fileName: u.fileName,
-        originalName: u.originalName,
-        fileSize: u.fileSize,
-        mimeType: u.mimeType,
-        clientName: u.clientName,
-        clientEmail: u.clientEmail,
-        clientPhone: u.clientPhone,
-        status: u.status,
-        createdAt: u.createdAt,
+      .map(u => ({
+        id: u.id, fileName: u.fileName, originalName: u.originalName, fileSize: u.fileSize, mimeType: u.mimeType,
+        clientName: u.clientName, clientEmail: u.clientEmail, clientPhone: u.clientPhone, status: u.status, createdAt: u.createdAt,
       }));
     return ok(res, uploads);
-  } catch (error) {
-    console.error(error);
+  } catch {
     return bad(res, 'Failed to fetch uploads', 500);
   }
 });
 
-// Health check
-addRoute('get', '/', (req, res) => ok(res, { ok: true, message: 'Server function is up' }));
+// Health
+bind('get', '/', (req, res) => ok(res, { ok: true, message: 'Server function is up' }));
 
-// Fallback: show what URL Express saw (helps diagnose path mismatches)
-app.all('*', (req, res) => {
-  return bad(res, `No route matched. originalUrl=${req.originalUrl} path=${req.path}`, 404);
-});
+// Fallback — shows exactly what Express saw
+app.all('*', (req, res) => bad(res, `No route matched. originalUrl=${req.originalUrl} path=${req.path}`, 404));
 
-// Export the Netlify handler
 module.exports.handler = serverless(app);
