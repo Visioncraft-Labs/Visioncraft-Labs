@@ -28,7 +28,7 @@ let currentImageUploadId = 1;
 // ---------- Multer (memory) ----------
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const ok = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"].includes(file.mimetype);
     if (ok) return cb(null, true);
@@ -39,10 +39,8 @@ const upload = multer({
 // ---------- Helpers ----------
 const ok = (res, data, code = 200) => res.status(code).json(data);
 const bad = (res, msg, code = 400) => res.status(code).json({ success: false, message: msg });
-
-function escapeHtml(str = "") {
-  return str.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-}
+const escapeHtml = (s = "") =>
+  s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
 // ----- Gmail SMTP via Nodemailer -----
 function assertSmtpEnv() {
@@ -53,22 +51,20 @@ function assertSmtpEnv() {
     );
   }
 }
-
 function makeTransport() {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
   return nodemailer.createTransport({
     host: SMTP_HOST,                 // smtp.gmail.com
     port: Number(SMTP_PORT),         // 465
     secure: Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    auth: { user: SMTP_USER, pass: SMTP_PASS }, // use Gmail App Password
   });
 }
-
 async function sendEmail({ name, email, phone, message }) {
   assertSmtpEnv();
   const { TO_EMAIL, FROM_EMAIL, SMTP_USER } = process.env;
 
-  const from = FROM_EMAIL || SMTP_USER; // must be the authenticated Gmail or verified alias
+  const from = FROM_EMAIL || SMTP_USER; // must be the authenticated Gmail or a verified alias
   const subject = `New contact form message from ${name}`;
   const html = `
     <h2>Contact Form</h2>
@@ -92,7 +88,8 @@ async function sendEmail({ name, email, phone, message }) {
   return { provider: "smtp" };
 }
 
-// ---------- Route binder for 3 prefixes ----------
+// ---------- Bind same handlers to 3 prefixes ----------
+// Works in local dev (""), via /api/* redirect, and direct function path.
 const FN = "/.netlify/functions/server";
 const PREFIXES = ["", "/api", FN];
 const bind = (method, path, ...handlers) => PREFIXES.forEach((p) => app[method](`${p}${path}`, ...handlers));
@@ -112,7 +109,6 @@ bind("get", "/contact/debug", (req, res) => {
     debug: { originalUrl: req.originalUrl, path: req.path },
   });
 });
-
 bind("get", "/contact/test", async (req, res) => {
   try {
     await sendEmail({
