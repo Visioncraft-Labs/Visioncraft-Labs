@@ -1,10 +1,10 @@
 // netlify/functions/server.js
-// Express + serverless-http (ESM) — Gmail SMTP via Nodemailer
+// Express + serverless-http (ESM) — uses Gmail SMTP helper in ../../server/mailer.js
 
 import express from "express";
 import serverless from "serverless-http";
 import multer from "multer";
-import nodemailer from "nodemailer";
+import { sendContactEmail, sendTestEmail } from "../../server/mailer.js";
 
 const app = express();
 
@@ -39,57 +39,8 @@ const upload = multer({
 // ---------- Helpers ----------
 const ok = (res, data, code = 200) => res.status(code).json(data);
 const bad = (res, msg, code = 400) => res.status(code).json({ success: false, message: msg });
-const escapeHtml = (s = "") =>
-  s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-
-// ----- Gmail SMTP via Nodemailer -----
-function assertSmtpEnv() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, TO_EMAIL } = process.env;
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !TO_EMAIL) {
-    throw new Error(
-      "SMTP not configured: set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and TO_EMAIL. (FROM_EMAIL optional; defaults to SMTP_USER)"
-    );
-  }
-}
-function makeTransport() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
-  return nodemailer.createTransport({
-    host: SMTP_HOST,                 // smtp.gmail.com
-    port: Number(SMTP_PORT),         // 465
-    secure: Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS }, // use Gmail App Password
-  });
-}
-async function sendEmail({ name, email, phone, message }) {
-  assertSmtpEnv();
-  const { TO_EMAIL, FROM_EMAIL, SMTP_USER } = process.env;
-
-  const from = FROM_EMAIL || SMTP_USER; // must be the authenticated Gmail or a verified alias
-  const subject = `New contact form message from ${name}`;
-  const html = `
-    <h2>Contact Form</h2>
-    <p><b>Name:</b> ${escapeHtml(name)}</p>
-    <p><b>Email:</b> ${escapeHtml(email)}</p>
-    ${phone ? `<p><b>Phone:</b> ${escapeHtml(phone)}</p>` : ""}
-    <p><b>Message:</b></p>
-    <p>${escapeHtml(message).replace(/\n/g, "<br/>")}</p>
-  `;
-
-  const transporter = makeTransport();
-  await transporter.sendMail({
-    from,
-    to: TO_EMAIL,
-    subject,
-    html,
-    text: `Name: ${name}\nEmail: ${email}\n${phone ? `Phone: ${phone}\n` : ""}\n\n${message}`,
-    replyTo: email,
-  });
-
-  return { provider: "smtp" };
-}
 
 // ---------- Bind same handlers to 3 prefixes ----------
-// Works in local dev (""), via /api/* redirect, and direct function path.
 const FN = "/.netlify/functions/server";
 const PREFIXES = ["", "/api", FN];
 const bind = (method, path, ...handlers) => PREFIXES.forEach((p) => app[method](`${p}${path}`, ...handlers));
@@ -109,14 +60,10 @@ bind("get", "/contact/debug", (req, res) => {
     debug: { originalUrl: req.originalUrl, path: req.path },
   });
 });
+
 bind("get", "/contact/test", async (req, res) => {
   try {
-    await sendEmail({
-      name: "Visioncraft Tester",
-      email: "no-reply@visioncraftlabs.com",
-      phone: "",
-      message: "This is a test from /contact/test route.",
-    });
+    await sendTestEmail();
     ok(res, { success: true, message: "Test email sent via SMTP." });
   } catch (e) {
     console.error("SMTP test error:", e);
@@ -140,7 +87,7 @@ bind("post", "/contact", async (req, res) => {
     };
     contactSubmissions.push(submission);
 
-    await sendEmail({ name, email, phone, message });
+    await sendContactEmail({ name, email, phone, message });
     ok(res, { success: true, message: "Contact form submitted successfully" }, 201);
   } catch (error) {
     console.error("Contact error:", error);
