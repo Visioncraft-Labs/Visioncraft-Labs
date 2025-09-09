@@ -17,10 +17,9 @@ async function readBody(res: Response): Promise<any | string | null> {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const body = await readBody(res);
-    // Prefer server-provided error details
     const msg =
       (body && typeof body === "object" && ("message" in body || "error" in body)
-        ? (body.message as string) || (body.error as string)
+        ? (body as any).message ?? (body as any).error
         : typeof body === "string"
         ? body
         : res.statusText) || `HTTP ${res.status}`;
@@ -34,16 +33,24 @@ export async function apiRequest<T = any>(
   url: string,
   data?: unknown,
 ): Promise<T> {
+  // Detect FormData to support multipart uploads (e.g., preview image)
+  const isFormData = typeof FormData !== "undefined" && data instanceof FormData;
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
+    // IMPORTANT: Do NOT set Content-Type for FormData.
+    // The browser will set the correct multipart boundary.
+    headers: isFormData
+      ? {}
+      : data
+      ? { "Content-Type": "application/json" }
+      : {},
+    body: data ? (isFormData ? (data as FormData) : JSON.stringify(data)) : undefined,
     credentials: "include",
   });
 
   await throwIfResNotOk(res);
   const body = await readBody(res);
-  // If server returned empty body, just return an empty object
   return (body as T) ?? ({} as T);
 }
 
