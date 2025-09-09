@@ -1,11 +1,10 @@
 // netlify/functions/server.js
-// ESM + serverless-http for Netlify Functions
-// Works at /.netlify/functions/server/* and /api/* (via redirect) and bare /* (dev)
+// Express + serverless-http (ESM) — Gmail SMTP via Nodemailer
 
 import express from "express";
 import serverless from "serverless-http";
 import multer from "multer";
-import sgMail from "@sendgrid/mail"; // <-- SendGrid
+import nodemailer from "nodemailer";
 
 const app = express();
 
@@ -13,7 +12,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Origin", "*"); // tighten for prod if needed
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -38,57 +37,38 @@ const upload = multer({
 });
 
 // ---------- Helpers ----------
-function escapeHtml(str = "") {
-  return str.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-}
 const ok = (res, data, code = 200) => res.status(code).json(data);
 const bad = (res, msg, code = 400) => res.status(code).json({ success: false, message: msg });
 
-// ---- Resend ----
-async function sendViaResend({ from, to, subject, html, replyTo }) {
-  const { RESEND_API_KEY } = process.env;
-  if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY not set");
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to, subject, html, reply_to: replyTo }),
-  });
-  const text = await resp.text().catch(() => "");
-  if (!resp.ok) throw new Error(`Resend (${resp.status}) ${text}`);
-  return text;
+function escapeHtml(str = "") {
+  return str.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
 
-// ---- SendGrid ----
-async function sendViaSendgrid({ from, to, subject, html, replyTo }) {
-  const { SENDGRID_API_KEY } = process.env;
-  if (!SENDGRID_API_KEY) throw new Error("SENDGRID_API_KEY not set");
-  sgMail.setApiKey(SENDGRID_API_KEY);
-
-  // NOTE: "from" must be a verified sender or from a verified domain in SendGrid.
-  const msg = { to, from, subject, html, replyTo };
-  try {
-    const [resp] = await sgMail.send(msg);
-    if (resp?.statusCode && resp.statusCode >= 400) {
-      throw new Error(`SendGrid (${resp.statusCode})`);
-    }
-  } catch (e) {
-    // SDK throws with a detailed response body on 4xx/5xx
-    const detail = e?.response?.body ? JSON.stringify(e.response.body) : String(e);
-    throw new Error(`SendGrid error: ${detail}`);
+// ----- Gmail SMTP via Nodemailer -----
+function assertSmtpEnv() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, TO_EMAIL } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !TO_EMAIL) {
+    throw new Error(
+      "SMTP not configured: set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and TO_EMAIL. (FROM_EMAIL optional; defaults to SMTP_USER)"
+    );
   }
 }
 
-// Unified email function: prefers Resend, else SendGrid
+function makeTransport() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+  return nodemailer.createTransport({
+    host: SMTP_HOST,                 // smtp.gmail.com
+    port: Number(SMTP_PORT),         // 465
+    secure: Number(SMTP_PORT) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+}
+
 async function sendEmail({ name, email, phone, message }) {
-  const {
-    RESEND_API_KEY,
-    SENDGRID_API_KEY,
-    FROM_EMAIL, // optional; see notes below
-    TO_EMAIL,
-  } = process.env;
+  assertSmtpEnv();
+  const { TO_EMAIL, FROM_EMAIL, SMTP_USER } = process.env;
 
-  if (!TO_EMAIL) throw new Error("TO_EMAIL not set");
-
+  const from = FROM_EMAIL || SMTP_USER; // must be the authenticated Gmail or verified alias
   const subject = `New contact form message from ${name}`;
   const html = `
     <h2>Contact Form</h2>
@@ -99,33 +79,33 @@ async function sendEmail({ name, email, phone, message }) {
     <p>${escapeHtml(message).replace(/\n/g, "<br/>")}</p>
   `;
 
-  if (RESEND_API_KEY) {
-    // Works for testing without domain verification using onboarding@resend.dev
-    const from = FROM_EMAIL || "onboarding@resend.dev";
-    return await sendViaResend({ from, to: TO_EMAIL, subject, html, replyTo: email });
-  }
+  const transporter = makeTransport();
+  await transporter.sendMail({
+    from,
+    to: TO_EMAIL,
+    subject,
+    html,
+    text: `Name: ${name}\nEmail: ${email}\n${phone ? `Phone: ${phone}\n` : ""}\n\n${message}`,
+    replyTo: email,
+  });
 
-  if (SENDGRID_API_KEY) {
-    // Must be a verified sender (Single Sender) OR from a verified domain in SendGrid
-    const from = FROM_EMAIL || "visioncraftlabs@gmail.com"; // only valid if verified in SendGrid
-    return await sendViaSendgrid({ from, to: TO_EMAIL, subject, html, replyTo: email });
-  }
-
-  throw new Error("Email not configured: set RESEND_API_KEY or SENDGRID_API_KEY, plus TO_EMAIL (optional FROM_EMAIL).");
+  return { provider: "smtp" };
 }
 
-// ---------- Bind same handlers to 3 prefixes ----------
+// ---------- Route binder for 3 prefixes ----------
 const FN = "/.netlify/functions/server";
 const PREFIXES = ["", "/api", FN];
 const bind = (method, path, ...handlers) => PREFIXES.forEach((p) => app[method](`${p}${path}`, ...handlers));
 
-// ---------- Debug ----------
+// ---------- Debug & Test ----------
 bind("get", "/contact/debug", (req, res) => {
   const present = (v) => typeof v === "string" && v.length > 0;
-  return ok(res, {
+  ok(res, {
     env_present: {
-      RESEND_API_KEY: present(process.env.RESEND_API_KEY),
-      SENDGRID_API_KEY: present(process.env.SENDGRID_API_KEY),
+      SMTP_HOST: present(process.env.SMTP_HOST),
+      SMTP_PORT: present(process.env.SMTP_PORT),
+      SMTP_USER: present(process.env.SMTP_USER),
+      SMTP_PASS: present(process.env.SMTP_PASS),
       TO_EMAIL: present(process.env.TO_EMAIL),
       FROM_EMAIL: present(process.env.FROM_EMAIL),
     },
@@ -141,10 +121,10 @@ bind("get", "/contact/test", async (req, res) => {
       phone: "",
       message: "This is a test from /contact/test route.",
     });
-    return ok(res, { success: true, message: "Test email sent." });
+    ok(res, { success: true, message: "Test email sent via SMTP." });
   } catch (e) {
-    console.error("Test email error:", e);
-    return bad(res, e.message || "Failed to send test email", 500);
+    console.error("SMTP test error:", e);
+    bad(res, e.message || "Failed to send test email", 500);
   }
 });
 
@@ -165,19 +145,19 @@ bind("post", "/contact", async (req, res) => {
     contactSubmissions.push(submission);
 
     await sendEmail({ name, email, phone, message });
-    return ok(res, { success: true, message: "Contact form submitted successfully" }, 201);
+    ok(res, { success: true, message: "Contact form submitted successfully" }, 201);
   } catch (error) {
     console.error("Contact error:", error);
-    return bad(res, error.message || "Failed to submit contact form", 500);
+    bad(res, error.message || "Failed to submit contact form", 500);
   }
 });
 
 bind("get", "/contact-submissions", (req, res) => {
   try {
     const list = [...contactSubmissions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return ok(res, list);
+    ok(res, list);
   } catch {
-    return bad(res, "Failed to fetch contact submissions", 500);
+    bad(res, "Failed to fetch contact submissions", 500);
   }
 });
 
@@ -191,7 +171,7 @@ bind("post", "/upload-image", upload.single("image"), (req, res) => {
       originalName: req.file.originalname,
       fileSize: String(req.file.size),
       mimeType: req.file.mimetype,
-      uploadPath: `/tmp/${Date.now()}_${req.file.originalname}`, // placeholder
+      uploadPath: `/tmp/${Date.now()}_${req.file.originalname}`, // placeholder only
       clientName: clientName || null,
       clientEmail: clientEmail || null,
       clientPhone: clientPhone || null,
@@ -199,13 +179,13 @@ bind("post", "/upload-image", upload.single("image"), (req, res) => {
       createdAt: new Date().toISOString(),
     };
     imageUploads.push(record);
-    return ok(res, {
+    ok(res, {
       success: true,
       upload: { id: record.id, originalName: record.originalName, status: record.status, uploadedAt: record.createdAt },
     });
   } catch (error) {
     console.error(error);
-    return bad(res, error.message || "Upload failed", 500);
+    bad(res, error.message || "Upload failed", 500);
   }
 });
 
@@ -225,9 +205,9 @@ bind("get", "/uploads", (req, res) => {
         status: u.status,
         createdAt: u.createdAt,
       }));
-    return ok(res, uploads);
+    ok(res, uploads);
   } catch {
-    return bad(res, "Failed to fetch uploads", 500);
+    bad(res, "Failed to fetch uploads", 500);
   }
 });
 
