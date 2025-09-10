@@ -3,43 +3,32 @@ import { Button } from "@/components/ui/button";
 import BeforeAfterImage from "@/components/before-after-image";
 import ScrollReveal from "@/components/scroll-reveal";
 
-// NEW: import from @assets (-> attached_assets)
-import heroBefore from "@assets/home/hero-before.jpg";
-import heroAfter from "@assets/home/hero-after.jpg";
-
-import pfElectronicsBefore from "@assets/home/pf-electronics-before.jpg";
-import pfElectronicsAfter from "@assets/home/pf-electronics-after.jpg";
-import pfFashionBefore from "@assets/home/pf-fashion-before.jpg";
-import pfFashionAfter from "@assets/home/pf-fashion-after.jpg";
-import pfBeautyBefore from "@assets/home/pf-beauty-before.jpg";
-import pfBeautyAfter from "@assets/home/pf-beauty-after.jpg";
-
 const Home = () => {
   const portfolioItems = [
     {
-      beforeImage: pfElectronicsBefore,
-      afterImage: pfElectronicsAfter,
+      beforeImage: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400",
+      afterImage: "https://images.unsplash.com/photo-1583394838336-acd977736f90?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400",
       beforeAlt: "Headphones before styling",
       afterAlt: "Headphones after styling",
       title: "Studio Enhancement",
-      category: "Electronics",
+      category: "Electronics"
     },
     {
-      beforeImage: pfFashionBefore,
-      afterImage: pfFashionAfter,
+      beforeImage: "https://images.unsplash.com/photo-1549298916-b41d501d3772?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400",
+      afterImage: "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400",
       beforeAlt: "Sneakers before styling",
       afterAlt: "Sneakers after styling",
       title: "Lifestyle Styling",
-      category: "Fashion",
+      category: "Fashion"
     },
     {
-      beforeImage: pfBeautyBefore,
-      afterImage: pfBeautyAfter,
+      beforeImage: "https://images.unsplash.com/photo-1541643600914-78b084683601?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400",
+      afterImage: "https://images.unsplash.com/photo-1594736797933-d0101ba14811?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400",
       beforeAlt: "Perfume before styling",
       afterAlt: "Perfume after styling",
       title: "Commercial Grade",
-      category: "Beauty",
-    },
+      category: "Beauty"
+    }
   ];
 
   return (
@@ -58,18 +47,22 @@ const Home = () => {
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/portfolio">
-                  <Button className="btn-luxury px-8 py-4 rounded-lg">View Portfolio</Button>
+                  <Button className="btn-luxury px-8 py-4 rounded-lg">
+                    View Portfolio
+                  </Button>
                 </Link>
                 <Link href="/contact">
-                  <Button className="btn-secondary px-8 py-4 rounded-lg">Get Started</Button>
+                  <Button className="btn-secondary px-8 py-4 rounded-lg">
+                    Get Started
+                  </Button>
                 </Link>
               </div>
             </div>
-
+            
             <div className="relative">
               <BeforeAfterImage
-                beforeImage={heroBefore}
-                afterImage={heroAfter}
+                beforeImage="https://images.unsplash.com/photo-1523275335684-37898b6baf30?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600"
+                afterImage="https://images.unsplash.com/photo-1547996160-81dfa63595aa?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600"
                 beforeAlt="Luxury watch before transformation"
                 afterAlt="Luxury watch after transformation"
                 className="rounded-2xl shadow-2xl overflow-hidden h-96"
@@ -95,7 +88,7 @@ const Home = () => {
               </p>
             </div>
           </ScrollReveal>
-
+          
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {portfolioItems.map((item, index) => (
               <ScrollReveal key={index} delay={index * 100}>
@@ -115,11 +108,13 @@ const Home = () => {
               </ScrollReveal>
             ))}
           </div>
-
+          
           <ScrollReveal>
             <div className="text-center mt-12">
               <Link href="/portfolio">
-                <Button className="btn-secondary px-8 py-4 rounded-lg">View Full Portfolio</Button>
+                <Button className="btn-secondary px-8 py-4 rounded-lg">
+                  View Full Portfolio
+                </Button>
               </Link>
             </div>
           </ScrollReveal>
